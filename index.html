@@ -34,9 +34,14 @@
   .card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:16px;padding:20px;margin-bottom:16px}
   .card h3{margin:0 0 14px;font-size:15px;text-transform:uppercase;letter-spacing:1.4px;color:var(--teal)}
   label{display:block;font-size:13px;color:var(--muted);margin:12px 0 6px}
-  input[type=text]{width:100%;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.15);
+  input[type=text],input[type=number],select{width:100%;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.15);
     background:rgba(0,0,0,.25);color:var(--txt);font-size:15px;outline:none}
-  input[type=text]:focus{border-color:var(--teal)}
+  input[type=text]:focus,input[type=number]:focus,select:focus{border-color:var(--teal)}
+  select option{background:#0d2340;color:var(--txt)}
+  code{background:rgba(0,214,194,.14);color:#a9fff4;padding:1px 6px;border-radius:5px;font-size:12px}
+  .preview{margin-top:14px;padding:12px 14px;border-radius:10px;font-size:15px;
+    background:rgba(255,255,255,.05);border:1px dashed rgba(255,255,255,.18);color:#cfe6ff}
+  .preview b{color:var(--teal);letter-spacing:1px;font-size:11px;display:block;margin-bottom:4px;text-transform:uppercase}
   .drop{border:2px dashed rgba(255,255,255,.22);border-radius:14px;padding:26px;text-align:center;cursor:pointer;transition:.15s}
   .drop:hover,.drop.over{border-color:var(--teal);background:rgba(0,214,194,.07)}
   .drop b{color:var(--teal)}
@@ -85,6 +90,18 @@
   .question{font-size:clamp(26px,5vw,64px);font-weight:900;letter-spacing:-1px;margin:6px 0 34px}
 
   .phase{font-size:clamp(20px,3vw,36px);font-weight:800;color:var(--teal);letter-spacing:1px;min-height:1.4em}
+  .countdown{
+    font-size:clamp(88px,20vw,240px);font-weight:900;line-height:.95;letter-spacing:-6px;
+    font-variant-numeric:tabular-nums;margin:6px 0 -6px;
+    background:linear-gradient(180deg,#ffffff 0%,#a9fff4 45%,var(--teal) 100%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 0 40px rgba(0,214,194,.45))
+  }
+  .countdown.tick{animation:tick .5s cubic-bezier(.2,1.4,.4,1)}
+  .countdown.low{background:linear-gradient(180deg,#fff 0%,var(--gold) 45%,var(--pink) 100%);
+    -webkit-background-clip:text;background-clip:text;filter:drop-shadow(0 0 46px rgba(255,77,141,.5))}
+  @keyframes tick{0%{transform:scale(1.35);opacity:.25}60%{transform:scale(.97)}100%{transform:scale(1);opacity:1}}
+
   .roller{
     margin-top:18px;height:clamp(56px,9vw,110px);overflow:hidden;position:relative;
     font-size:clamp(28px,5.6vw,72px);font-weight:900;color:#fff;opacity:.92;
@@ -174,6 +191,30 @@
       <label class="toggle"><input type="checkbox" id="showMask" checked> Mostrar identificador enmascarado junto al nombre del ganador</label>
     </div>
 
+    <div class="card">
+      <h3>Mensaje del ganador y cuenta regresiva</h3>
+      <div class="row">
+        <div>
+          <label for="conn">Conector antes del premio</label>
+          <select id="conn">
+            <option value="auto">Automático (lo deduce del premio)</option>
+            <option value="del">del…</option>
+            <option value="de la">de la…</option>
+            <option value="de los">de los…</option>
+            <option value="de las">de las…</option>
+            <option value="de">de…</option>
+          </select>
+        </div>
+        <div>
+          <label for="secs">Cuenta regresiva (segundos)</label>
+          <input type="number" id="secs" value="10" min="3" max="60" step="1">
+        </div>
+      </div>
+      <label for="customMsg">Frase completa (opcional) — escribe <code>{premio}</code> donde deba ir el premio</label>
+      <input type="text" id="customMsg" maxlength="160" placeholder="¡Felicitaciones! Eres el ganador de las {premio}.">
+      <div class="preview" id="msgPreview"></div>
+    </div>
+
     <div class="cfg-actions">
       <button class="btn" id="goShow">ACTIVAR MODO PRESENTACIÓN</button>
     </div>
@@ -231,6 +272,7 @@
     <!-- Estado: sorteando -->
     <div class="block" id="stateDraw">
       <div class="phase" id="phaseText">Preparando la suerte…</div>
+      <div class="countdown" id="countdown">10</div>
       <div class="roller" id="roller"><span>&nbsp;</span></div>
     </div>
 
@@ -514,7 +556,43 @@ const Core = (() => {
     return best;
   }
 
-  return {parseCSV, fromRows, readAny, sniff, decodeText, detect, parseQty, build, pick, secureInt, norm};
+  /* --- Concordancia en español: devuelve del / de la / de los / de las --- */
+  const MASC_EN_A = ['dia','mapa','problema','sistema','clima','idioma','planeta','tema','sofa','programa',
+                     'drama','poema','tranvia','pijama','iphone','ipad','alfa','delta'];
+  const FEM_SING  = /(cion|sion|dad|tad|tud|umbre|ez|eza|itis|ancia|encia|ura|ncia)$/;
+  const FEM_PLUR  = /(ciones|siones|dades|tades|tudes|umbres|eces|ezas|uras|ancias|encias)$/;
+
+  /* artículos: si el premio ya trae uno, él manda */
+  const ART = {el:'del', un:'del', lo:'del', la:'de la', una:'de la',
+               los:'de los', unos:'de los', las:'de las', unas:'de las'};
+  /* palabras que no definen género (números y cuantificadores) */
+  const SKIPW = {dos:1,tres:1,cuatro:1,cinco:1,seis:1,siete:1,ocho:1,nueve:1,diez:1,once:1,doce:1,
+                 varios:1,varias:1,mas:1,super:1,mega:1,gran:1,nuevo:1,nueva:1,nuevos:1,nuevas:1};
+  /* femeninas que no terminan en -a */
+  const FEM_WORDS = {laptop:1,tablet:1,moto:1,foto:1,tv:1,imagen:1,flor:1,piel:1,red:1,nave:1,
+                     clase:1,llave:1,torre:1,nube:1,sal:1,miel:1,mujer:1,noche:1,tarde:1,serie:1};
+
+  function autoConn(prize){
+    const clean = s => norm(s).toLowerCase();          // sin tildes, sin signos
+    const words = String(prize||'').trim().split(/\s+/).map(clean).filter(w => w && !/^\d+$/.test(w));
+    if(!words.length) return 'del';
+    if(ART[words[0]]) return ART[words[0]];            // "Las mejores butacas" -> de las
+    let i = 0;
+    while(i < words.length && SKIPW[words[i]]) i++;    // "Dos entradas VIP" -> entradas
+    const w = words[i];
+    if(!w) return 'del';
+    if(FEM_WORDS[w]) return 'de la';
+
+    const plural = w.length > 3 && /s$/.test(w);
+    if(plural){
+      const fem = /as$/.test(w) || FEM_PLUR.test(w) || FEM_WORDS[w.replace(/e?s$/,'')];
+      return fem ? 'de las' : 'de los';
+    }
+    const fem = (/a$/.test(w) && MASC_EN_A.indexOf(w) < 0) || FEM_SING.test(w);
+    return fem ? 'de la' : 'del';
+  }
+
+  return {parseCSV, fromRows, readAny, sniff, decodeText, detect, parseQty, build, pick, secureInt, norm, autoConn};
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;   // uso en pruebas
@@ -548,6 +626,31 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
 
   wireDrop($('logoDrop'), $('logoInput'), loadLogo);
   wireDrop($('pubDrop'), $('pubInput'), processFile);
+
+  /* ---------- frase del ganador ---------- */
+  function prizeText(){ return ($('prizeName').value || '').trim() || 'el gran premio'; }
+
+  function winnerMessage(){
+    const prize = prizeText();
+    const custom = ($('customMsg').value || '').trim();
+    if(custom) return custom.indexOf('{premio}') >= 0 ? custom.split('{premio}').join(prize) : custom;
+    const sel = $('conn').value;
+    const conn = (sel === 'auto') ? Core.autoConn(prize) : sel;
+    /* si el premio ya empieza con artículo, no lo repetimos: "del El viaje" -> "del viaje" */
+    const texto = prize.replace(/^\s*(el|la|los|las|un|una|unos|unas)\s+/i, '');
+    return `¡Felicitaciones! Eres el ganador ${conn} ${texto}.`;
+  }
+
+  function refreshPreview(){
+    const sel = $('conn').value;
+    const auto = sel === 'auto' ? ' · detectado: "' + Core.autoConn(prizeText()) + '"' : '';
+    $('msgPreview').innerHTML = '<b>Así se verá' + auto + '</b>' + escapeHTML(winnerMessage());
+  }
+  ['prizeName','conn','customMsg'].forEach(id => {
+    $(id).addEventListener('input', refreshPreview);
+    $(id).addEventListener('change', refreshPreview);
+  });
+  refreshPreview();
 
   /* ---------- entrar a presentación ---------- */
   $('goShow').addEventListener('click', ()=>{
@@ -707,7 +810,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
     drawing = true;
     $('drawBtn').disabled = true; $('againBtn').disabled = true;
 
-    /* el ganador queda decidido AQUÍ; la animación es solo visual */
+    /* el ganador queda decidido AQUÍ; la cuenta regresiva es solo visual */
     let winner = null;
     try { winner = Core.pick(built); } catch(e){ winner = null; }
     if(!winner){
@@ -715,25 +818,52 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
       return;
     }
 
+    let secs = parseInt($('secs').value, 10);
+    if(!Number.isFinite(secs) || secs < 3) secs = 10;
+    if(secs > 60) secs = 60;
+
     show('stateDraw');
     $('phaseText').textContent = PHASES[0];
+    const cd = $('countdown');
+    cd.classList.remove('low');
+    cd.textContent = secs;
+
     const pool = built.list.map(displayName);
     const roller = $('roller');
-
     const spin = setInterval(()=>{
       const t = pool[Math.floor(Math.random()*pool.length)] || '•••';
       roller.innerHTML = `<span>${escapeHTML(t)}</span>`;
     }, 90);
 
-    const t1 = setTimeout(()=> $('phaseText').textContent = PHASES[1], 1000);
-    const t2 = setTimeout(()=> $('phaseText').textContent = PHASES[2], 2100);
+    const T = secs * 1000, t0 = performance.now();
+    let shown = secs, phase = 0;
 
-    setTimeout(()=>{
-      clearInterval(spin); clearTimeout(t1); clearTimeout(t2);
-      reveal(winner);
-      drawing = false;
-      $('drawBtn').disabled = false; $('againBtn').disabled = false;
-    }, 3100);
+    const frame = () => {
+      const left = Math.max(0, T - (performance.now() - t0));
+      const n = Math.ceil(left / 1000);
+
+      if(n !== shown){
+        shown = n;
+        cd.textContent = n;
+        cd.classList.remove('tick'); void cd.offsetWidth; cd.classList.add('tick');
+        if(n <= 3) cd.classList.add('low');
+      }
+      const p = 1 - left / T;
+      const want = p < 0.4 ? 0 : (p < 0.75 ? 1 : 2);
+      if(want !== phase){ phase = want; $('phaseText').textContent = PHASES[phase]; }
+
+      if(left > 0) requestAnimationFrame(frame);
+      else {
+        clearInterval(spin);
+        cd.textContent = '0';
+        setTimeout(()=>{
+          reveal(winner);
+          drawing = false;
+          $('drawBtn').disabled = false; $('againBtn').disabled = false;
+        }, 320);
+      }
+    };
+    requestAnimationFrame(frame);
   }
 
   function escapeHTML(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -746,8 +876,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
       if(!w.name) mask = '';   // ya se muestra un dato enmascarado como nombre
     }
     $('winMask').textContent = mask;
-    const prize = $('prizeName').value || 'el gran premio';
-    $('congrats').textContent = `¡Felicitaciones! Eres el ganador del ${prize}.`;
+    $('congrats').textContent = winnerMessage();
     show('stateWin');
     celebrate();
   }

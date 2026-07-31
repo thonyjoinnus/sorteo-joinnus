@@ -202,7 +202,7 @@
       <div class="row">
         <div>
           <label for="raffleName">Nombre del sorteo</label>
-          <input type="text" id="raffleName" value="SORTEO JOINNUS" maxlength="80">
+          <input type="text" id="raffleName" value="SORTEO" maxlength="80">
         </div>
         <div>
           <label for="prizeName">Premio</label>
@@ -259,9 +259,9 @@
 
     <!-- Estado: carga de la base, en vivo ante el público -->
     <div class="block on" id="stateLoad">
-      <p class="name-raffle" id="lTitle">SORTEO JOINNUS</p>
+      <p class="name-raffle" id="lTitle">SORTEO</p>
       <div class="prize" id="lPrize">iPhone 17 Pro Max</div>
-      <div class="tag">¡Más oportunidades, más posibilidades!</div>
+      <div class="tag">¡Gracias por participar!</div>
       <h2 class="question">CARGUEMOS A LOS PARTICIPANTES</h2>
       <div class="pubdrop" id="pubDrop">
         <b>CARGAR BASE DE PARTICIPANTES</b>
@@ -286,9 +286,9 @@
 
     <!-- Estado: expectativa -->
     <div class="block" id="stateIdle">
-      <p class="name-raffle" id="rTitle">SORTEO JOINNUS</p>
+      <p class="name-raffle" id="rTitle">SORTEO</p>
       <div class="prize" id="rPrize">iPhone 17 Pro Max</div>
-      <div class="tag">¡Más oportunidades, más posibilidades!</div>
+      <div class="tag">¡Gracias por participar!</div>
       <h2 class="question">¿QUIÉN SERÁ EL GANADOR?</h2>
       <div class="idle-count" id="idleCount"></div>
       <div class="actions">
@@ -484,8 +484,8 @@ const Core = (() => {
       const doc  = cols.doc  ? String(r[cols.doc]||'').trim()  : '';
       const mail = cols.mail ? String(r[cols.mail]||'').trim() : '';
       const ape  = cols.apellido ? String(r[cols.apellido]||'').trim() : '';
-      let   name = cols.nombre ? String(r[cols.nombre]||'').trim() : '';
-      if(ape && norm(name) !== norm(name + ape)) name = (name + ' ' + ape).trim();
+      const pila = cols.nombre ? String(r[cols.nombre]||'').trim() : '';
+      let   name = ape ? (pila + ' ' + ape).trim() : pila;
       const tran = cols.trans ? String(r[cols.trans]||'').trim() : '';
 
       const docK = doc.replace(/[^0-9A-Za-z]/g,'').toUpperCase();
@@ -497,8 +497,10 @@ const Core = (() => {
       else { discarded++; continue; }
 
       let p = map.get(key);
-      if(!p){ p = {key, name, doc, mail, tran, weight:0}; map.set(key,p); }
+      if(!p){ p = {key, name, given:pila, sur:ape, doc, mail, tran, weight:0}; map.set(key,p); }
       if(!p.name && name) p.name = name;
+      if(!p.given && pila) p.given = pila;
+      if(!p.sur && ape) p.sur = ape;
       if(!p.doc && doc) p.doc = doc;
       if(!p.mail && mail) p.mail = mail;
       if(!p.tran && tran) p.tran = tran;
@@ -681,7 +683,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
 
   /* ---------- entrar a presentación ---------- */
   $('goShow').addEventListener('click', ()=>{
-    const title = ($('raffleName').value || 'SORTEO JOINNUS').toUpperCase();
+    const title = ($('raffleName').value || 'SORTEO').toUpperCase();
     const prize = $('prizeName').value || 'el gran premio';
     $('rTitle').textContent = title;  $('lTitle').textContent = title;
     $('rPrize').textContent = prize;  $('lPrize').textContent = prize;
@@ -819,8 +821,38 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
                + (parts.length>1 ? '.' + parts.slice(1).join('.') : '');
     return uu + '@' + dd;
   }
+  /* Luis Caceres -> LUIS CA***ES  (se conserva el nombre de pila, se tapa el apellido) */
+  const PARTICULAS = {DE:1,DEL:1,LA:1,LAS:1,LOS:1,Y:1,DA:1,DOS:1,VAN:1,VON:1,MC:1,SAN:1,SANTA:1,SANTO:1};
+  function maskWord(w){
+    const n = w.length;
+    if(n <= 2 || PARTICULAS[w]) return w;
+    if(n <= 4) return w.slice(0,1) + '*'.repeat(n-2) + w.slice(-1);
+    return w.slice(0,2) + '*'.repeat(n-4) + w.slice(-2);
+  }
+  /* toma el primer apellido: arrastra las partículas (DE LA CRUZ) y enmascara la palabra */
+  function primerApellido(words){
+    const out = [];
+    for(let i=0;i<words.length;i++){
+      if(PARTICULAS[words[i]]) { out.push(words[i]); continue; }
+      out.push(maskWord(words[i]));
+      break;
+    }
+    return out;
+  }
+  /* Solo primer nombre + primer apellido: "Luis Caceres Rojas" -> "LUIS CA***ES" */
+  function maskFullName(p){
+    const tok = t => String(t||'').replace(/\s+/g,' ').trim().toUpperCase().split(' ').filter(Boolean);
+    if(p.given && p.sur){
+      const nom = tok(p.given)[0] || '';
+      return [nom].concat(primerApellido(tok(p.sur))).join(' ').trim();
+    }
+    const w = tok(p.name);
+    if(w.length <= 1) return w.join(' ');
+    return [w[0]].concat(primerApellido(w.slice(1))).join(' ');
+  }
+
   function displayName(p){
-    if(p.name) return p.name.replace(/\s+/g,' ').trim().toUpperCase();
+    if(p.name) return maskFullName(p);
     if(p.mail) return maskMail(p.mail);
     if(p.doc)  return maskDoc(p.doc);
     return p.tran ? 'TRANSACCIÓN N° ' + p.tran : '—';

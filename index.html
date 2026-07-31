@@ -1025,11 +1025,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
     $('config').classList.remove('active');
     $('show').classList.add('active');
     resizeFX();
-    const el = document.documentElement;
-    if(el.requestFullscreen) el.requestFullscreen().catch(()=>{});
-    show('stateLoad');
+    show('stateLoad');         /* sin pantalla completa: se queda dentro de la ventana */
     fitPronto();
-    setTimeout(fit, 400);      /* tras entrar a pantalla completa */
+    setTimeout(fit, 250);
   });
 
   /* tecla V: verificación interna para el operador (no se muestra al público) */
@@ -1072,7 +1070,6 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
       return;
     }
     if(e.key === 'Escape' && $('show').classList.contains('active') && !drawing && !loading){
-      if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
       $('show').classList.remove('active');
       $('config').classList.add('active');
     }

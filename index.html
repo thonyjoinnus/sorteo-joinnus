@@ -242,7 +242,12 @@
     margin:clamp(6px,1.6vh,16px) 0 clamp(20px,3.6vh,34px);
     animation:fadeUp .8s ease both;animation-delay:1.25s}
   .idle-prize{font-size:clamp(12px,1.5vw,17px);letter-spacing:3.5px;color:var(--gold);font-weight:700;
-    line-height:1.6;margin:0 0 clamp(8px,1.6vh,14px)}
+    line-height:1.6;margin:0 auto clamp(8px,1.6vh,14px);display:flex;align-items:center;justify-content:center;
+    gap:clamp(10px,1.6vw,20px);max-width:640px}
+  .idle-prize:empty{display:none}
+  .idle-prize::before,.idle-prize::after{content:'';height:1px;flex:1 1 40px;max-width:120px}
+  .idle-prize::before{background:linear-gradient(90deg,rgba(255,209,102,0),rgba(255,209,102,.55))}
+  .idle-prize::after{background:linear-gradient(90deg,rgba(255,209,102,.55),rgba(255,209,102,0))}
   .idle-count{font-size:clamp(13px,1.5vw,17px);color:var(--muted);letter-spacing:2px;line-height:1.6;
     margin:0 0 clamp(24px,4.2vh,42px)}
 
@@ -276,6 +281,15 @@
     font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:12px;line-height:1.65;text-align:left;
     white-space:pre-wrap}
   .diag.on{display:block}
+
+  .block.frame{
+    max-width:min(1060px,88vw);
+    padding:clamp(22px,4.2vh,48px) clamp(20px,3.4vw,56px) clamp(26px,4.6vh,52px);
+    border:1.5px solid rgba(0,229,181,.5);border-radius:clamp(20px,2.6vw,34px);
+    background:linear-gradient(180deg,rgba(3,28,38,.42) 0%,rgba(2,18,26,.30) 100%);
+    box-shadow:0 0 70px rgba(0,229,181,.13), inset 0 0 70px rgba(0,229,181,.045);
+    backdrop-filter:blur(2px)
+  }
 
   .block{display:none}
   .block.on{display:block}
@@ -380,7 +394,7 @@
     <div class="brand" id="brand"></div>
 
     <!-- Estado: carga de la base, en vivo ante el público -->
-    <div class="block on" id="stateLoad">
+    <div class="block on frame" id="stateLoad">
       <p class="name-raffle" id="lTitle">SORTEO</p>
       <div class="prize" id="lPrize">iPhone 17 Pro Max</div>
       <img class="prize-img" id="lImg" alt="" style="display:none">
@@ -397,7 +411,7 @@
     </div>
 
     <!-- Estado: procesando la base (visible para el público) -->
-    <div class="block" id="stateProcess">
+    <div class="block frame" id="stateProcess">
       <div class="phase" id="loadPhase">Leyendo el archivo…</div>
       <div class="ticker" id="ticker"></div>
       <div class="bar"><i id="barFill"></i></div>
@@ -408,7 +422,7 @@
     </div>
 
     <!-- Estado: expectativa -->
-    <div class="block" id="stateIdle">
+    <div class="block frame" id="stateIdle">
       <p class="name-raffle" id="rTitle">SORTEO</p>
       <div class="prize" id="rPrize">iPhone 17 Pro Max</div>
       <img class="prize-img" id="rImg" alt="" style="display:none">
@@ -422,14 +436,14 @@
     </div>
 
     <!-- Estado: sorteando -->
-    <div class="block" id="stateDraw">
+    <div class="block frame" id="stateDraw">
       <div class="phase" id="phaseText">Preparando la suerte…</div>
       <div class="countdown" id="countdown">10</div>
       <div class="roller" id="roller"><span>&nbsp;</span></div>
     </div>
 
     <!-- Estado: ganador -->
-    <div class="block" id="stateWin">
+    <div class="block frame" id="stateWin">
       <div class="winner-label">¡TENEMOS GANADOR!</div>
       <div class="winner-name" id="winName">—</div>
       <div class="winner-mask" id="winMask"></div>
@@ -1197,7 +1211,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
         $('ticker').innerHTML = '';
         setTimeout(()=>{
           pintarPremio();
-          $('idleCount').textContent = people.toLocaleString('es-PE') + ' PARTICIPANTES · '
+          $('idleCount').textContent = people.toLocaleString('es-PE') + ' PARTICIPANTES  •  '
                                      + opts.toLocaleString('es-PE') + ' OPCIONES COMPRADAS';
           loading = false;
           show('stateIdle');

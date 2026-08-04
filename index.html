@@ -324,6 +324,17 @@
       <label class="toggle"><input type="checkbox" id="showMask" checked>
         <span>Mostrar el DNI del ganador, tapado a medias: <b>41••••27</b>
           <small>Ayuda a distinguir a dos personas con el mismo nombre. Los apellidos siempre salen tapados.</small></span></label>
+    </div>
+
+    <div class="card">
+      <h3>Cómo se cuentan las opciones</h3>
+      <label for="weighting">Regla de conteo</label>
+      <select id="weighting">
+        <option value="sum">Sumar la columna de cantidad (recomendado)</option>
+        <option value="row">Cada fila del archivo vale 1 opción</option>
+      </select>
+      <p class="hint-inline" style="margin-top:12px">Usa la segunda opción si el archivo ya viene expandido, con una fila por cada
+        oportunidad. Puedes comprobar los totales con la tecla <b>V</b> dentro del modo presentación.</p>
       <label class="toggle"><input type="checkbox" id="skipVoid" checked>
         <span>No incluir compras anuladas ni devueltas
           <small>Se usan las columnas PAGADO, ANULADO y DEVOLUCION del archivo, si existen.</small></span></label>
@@ -586,7 +597,10 @@ const Core = (() => {
   /* columnas que NO son de la persona (producto, evento, organizador, transacción…) */
   const NOPER = n => !(n.includes('PRODUCTO') || n.includes('EVENTO') || n.includes('SKU') ||
                        n.includes('ENTRADA')  || n.includes('TICKET') || n.includes('ORGANIZADOR') ||
-                       n.includes('TRANSACCION') || n.includes('PRECIO') || n.includes('CUPON'));
+                       n.includes('TRANSACCION') || n.includes('PRECIO') || n.includes('CUPON') ||
+                       n.includes('COMISION') || n.includes('SUBTOTAL') || n.includes('TOTAL') ||
+                       n.includes('DELIVERY') || n.includes('MONEDA') || n.includes('DESC') ||
+                       n.includes('METODO') || n.includes('ASIENTO'));
 
   function detect(headers){
     const map = headers.map(h => ({raw:h,n:norm(h)}));
@@ -609,7 +623,8 @@ const Core = (() => {
       item:        find([ n=>n==='IDEVENTO'||n==='IDDETALLE'||n==='SKU',
                           n=>n.includes('EVENTO')||n.includes('PRODUCTO')||n.includes('DETALLE') ]),
 
-      doc:      find([ n=>n==='NDOCUMENTO'||n==='NRODOCUMENTO'||n==='NUMERODOCUMENTO'||n==='NODOCUMENTO'||n==='NUMDOCUMENTO',
+      doc:      find([ n=>n==='NDOCUMENTO'||n==='NRODOCUMENTO'||n==='NUMERODOCUMENTO'||n==='NODOCUMENTO'||n==='NUMDOCUMENTO'
+                          ||n==='NRODEDOCUMENTO'||n==='NUMERODEDOCUMENTO'||n==='NDEDOCUMENTO',
                        n=>n.includes('DOCUMENTO') && !n.includes('TIPO') && NOPER(n),
                        n=>n==='DNI'||n==='CE'||n==='IDENTIFICACION' ]),
 
@@ -617,7 +632,8 @@ const Core = (() => {
                        n=>(n.includes('CORREO')||n.includes('EMAIL')||n.includes('MAIL')) && NOPER(n) ]),
 
       nombre:   find([ n=>n==='NOMBREDELCLIENTE'||n==='NOMBRECLIENTE'||n==='NOMBRECOMPLETO'||n==='NOMBREYAPELLIDOS',
-                       n=>n==='NOMBRE'||n==='NOMBRES',
+                       n=>n==='NOMBRE'||n==='NOMBRES'||n==='USUARIO'||n==='USUARIA',
+                       n=>n.includes('USUARIO') && NOPER(n),
                        n=>n.includes('NOMBRE') && NOPER(n),
                        n=>(n.includes('CLIENTE')||n.includes('PARTICIPANTE')||n.includes('COMPRADOR')||n.includes('ASISTENTE')) && NOPER(n) ]),
 
@@ -656,6 +672,23 @@ const Core = (() => {
     return t !== '' && (t === '0' || t === 'NO' || t === 'FALSE' || t === 'FALSO' || t === 'N');
   }
 
+  /* ¿el reporte viene "fraccionado" (una fila por oportunidad)?
+     Señal: filas que repiten la misma transacción+ítem tantas veces como dice su CANTIDAD. */
+  function analizaFraccion(data, cols){
+    if(!cols || !cols.cantidad || !cols.trans || data.length < 20) return {frac:false, grupos:data.length};
+    const g = new Map();
+    for(const r of data){
+      const q = parseQty(r[cols.cantidad]);
+      if(q === null) continue;
+      const k = String(r[cols.trans]||'') + '|' + (cols.item ? String(r[cols.item]||'') : '') + '|' + q;
+      const o = g.get(k) || {n:0, q:q};
+      o.n++; g.set(k, o);
+    }
+    let evid = 0, tot = 0;
+    g.forEach(o => { tot += o.n; if(o.q > 1 && o.n === o.q) evid += o.n; });
+    return {frac: tot > 0 && evid / tot > 0.10, grupos: g.size};
+  }
+
   /* --- Agrupación por documento > correo > nombre --- */
   function build(data, cols, opts){
     opts = opts || {};
@@ -666,18 +699,10 @@ const Core = (() => {
 
     /* ¿es un reporte "fraccionado", con una fila por cada oportunidad?
        Si muchas filas se repiten idénticas, cada fila vale 1 y no se suma la columna. */
-    let fraccionado = false;
-    if(cols.trans){
-      const vistos = Object.create(null);
-      let dup = 0, tot = 0;
-      for(const r of data){
-        tot++;
-        const f = String(r[cols.trans]||'') + '|' + (cols.item ? String(r[cols.item]||'') : '') +
-                  '|' + String(cols.cantidad ? r[cols.cantidad] : '');
-        if(vistos[f]) dup++; else vistos[f] = 1;
-      }
-      fraccionado = tot > 20 && dup / tot > 0.02;
-    }
+    const claves = data.length ? Object.keys(data[0]) : [];
+    const firmaDe = r => { let out = ''; for(const k of claves) out += String(r[k] === undefined ? '' : r[k]) + '\u001f'; return out; };
+
+    const fraccionado = opts.pesoPorFila === true;   /* "cada fila vale 1" */
 
     for(const r of data){
       /* 1) compras anuladas, devueltas o no pagadas */
@@ -701,10 +726,9 @@ const Core = (() => {
       let   name = ape ? (pila + ' ' + ape).trim() : pila;
       const tran = cols.trans ? String(r[cols.trans]||'').trim() : '';
 
-      /* 3) filas físicamente repetidas (solo si NO es un reporte fraccionado) */
-      if(tran && !fraccionado){
-        const item = cols.item ? String(r[cols.item]||'').trim() : '';
-        const firma = tran + '|' + item + '|' + qty;
+      /* 3) filas idénticas en todas sus columnas (solo si NO es un reporte fraccionado) */
+      if(!fraccionado && claves.length){
+        const firma = firmaDe(r);
         if(firmas[firma]){ duplicadas++; continue; }
         firmas[firma] = 1;
       }
@@ -804,12 +828,13 @@ const Core = (() => {
       const c = parsed.headers.length ? detect(parsed.headers) : {};
       const hasQty = !!c.cantidad;
       /* filas únicas: distingue el reporte original del "fraccionado" (una fila por oportunidad) */
+      /* compras únicas: si una hoja repite las mismas transacciones, es una versión expandida */
       let unicas = parsed.data.length;
-      if(hasQty && c.trans){
+      if(hasQty && c.trans && parsed.data.length){
         const vistos = Object.create(null); unicas = 0;
         for(const r of parsed.data){
-          const f = String(r[c.trans]||'') + '|' + (c.item ? String(r[c.item]||'') : '') + '|' + String(r[c.cantidad]||'');
-          if(!vistos[f]){ vistos[f] = 1; unicas++; }
+          const k = String(r[c.trans]||'') + '|' + (c.item ? String(r[c.item]||'') : '');
+          if(!vistos[k]){ vistos[k] = 1; unicas++; }
         }
       }
       detalle.push({name:name, rows:parsed.data.length, unicas:unicas, qty:hasQty});
@@ -858,7 +883,8 @@ const Core = (() => {
     return fem ? 'de la' : 'del';
   }
 
-  return {parseCSV, fromRows, readAny, sniff, decodeText, detect, parseQty, build, pick, secureInt, norm, autoConn};
+  return {parseCSV, fromRows, readAny, sniff, decodeText, detect, parseQty, build, pick, secureInt, norm,
+          autoConn, analizaFraccion};
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Core;   // uso en pruebas
@@ -1058,9 +1084,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
       if(diag.hojas.length > 1)
         L.push('hojas del libro: ' + diag.hojas.map(h => h.name + ' [' + h.rows + ' filas, ' + h.unicas + ' únicas' + (h.qty ? ', con cantidad' : '') + ']').join('  |  '));
       L.push('');
-      L.push('modo ............... ' + (diag.fraccionado
-        ? 'reporte FRACCIONADO: 1 oportunidad por fila'
-        : 'reporte por transacción: se suma la columna de peso'));
+      L.push('regla de conteo .... ' + (diag.fraccionado
+        ? 'cada fila vale 1 opción'
+        : 'se suma la columna de cantidad'));
       L.push('columna de peso ... ' + (c.cantidad || '(no hallada)') + (diag.fraccionado ? '  (solo se valida, no se suma)' : ''));
       L.push('documento ......... ' + (c.doc || '—'));
       L.push('correo ............ ' + (c.mail || '—'));
@@ -1154,7 +1180,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
         if(!headers.length || !data.length){ why = 'El archivo no tiene registros que podamos leer.'; throw 0; }
         const cols = Core.detect(headers);
         if(!cols.cantidad){ why = 'No encontramos la columna CANTIDAD en el archivo.'; throw 0; }
-        b = Core.build(data, cols, {excluirAnuladas: $('skipVoid').checked});
+        b = Core.build(data, cols, {excluirAnuladas: $('skipVoid').checked,
+                                    pesoPorFila: $('weighting').value === 'row'});
         rows = data.length;
         if(!b.list.length || b.total <= 0){ why = 'No hay participantes con oportunidades válidas.'; throw 0; }
         diag = {archivo:file.name, hoja:leido.sheet, hojas:leido.sheets || [], cols:cols,
@@ -1256,7 +1283,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
     }
     return out;
   }
-  /* Solo primer nombre + primer apellido: "Luis Caceres Rojas" -> "LUIS CA***ES" */
+  /* Solo primer nombre + primer apellido.
+     "Luis Caceres Rojas"          -> LUIS CA***ES
+     "Juan Diego Mares Fernandez"  -> JUAN MA**ES   (con 4+ palabras, los 2 últimos son apellidos)
+     "Juan Montes de Oca Castillo" -> JUAN MO**ES DE O*A */
   function maskFullName(p){
     const tok = t => String(t||'').replace(/\s+/g,' ').trim().toUpperCase().split(' ').filter(Boolean);
     if(p.given && p.sur){
@@ -1265,7 +1295,13 @@ if (typeof module !== 'undefined' && module.exports) module.exports = Core;   //
     }
     const w = tok(p.name);
     if(w.length <= 1) return w.join(' ');
-    return [w[0]].concat(primerApellido(w.slice(1))).join(' ');
+    if(w.length <= 3) return [w[0]].concat(primerApellido(w.slice(1))).join(' ');
+
+    /* 4 palabras o más: los dos últimos bloques son los apellidos */
+    let ini = w.length - 2;
+    while(ini - 1 >= 1 && PARTICULAS[w[ini-1]]) ini -= 2;      // "Montes de Oca"
+    if(ini < 1) ini = 1;
+    return [w[0]].concat(w.slice(ini, w.length - 1).map(maskWord)).join(' ');
   }
 
   function displayName(p){
